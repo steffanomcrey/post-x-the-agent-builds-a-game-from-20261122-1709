@@ -1,75 +1,138 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Snake — built from one prompt</title>
+<title>Snake, built by an AI agent from one prompt</title>
 <style>
-  body { margin: 0; background: #0b0b12; color: #f5f5f8; font-family: sans-serif;
-         display: flex; flex-direction: column; align-items: center; }
-  h1 { margin: 24px 0 4px; font-size: 28px; }
-  #hud { font-family: monospace; font-size: 20px; margin: 8px 0 16px; color: #facc15; }
-  canvas { background: #0d1b11; border: 3px solid #345a3c; border-radius: 12px; }
-  p { color: #a0a0b2; }
+  body { margin: 0; background: #0b0b12; color: #f5f5f8; font-family: sans-serif; text-align: center; }
+  h1 { margin: 18px 0 4px; font-size: 28px; letter-spacing: 2px; }
+  p { margin: 4px 0 14px; color: #a0a0b2; }
+  #board { background: #111b16; border: 3px solid #345a3c; border-radius: 12px; }
+  #hud { font-family: monospace; font-size: 20px; margin: 12px 0; color: #facc15; }
+  #hud b { color: #22c55e; }
 </style>
 </head>
 <body>
 <h1>SNAKE</h1>
-<div id="hud">SCORE 0 &nbsp; SPEED x1.0</div>
-<canvas id="game" width="784" height="420"></canvas>
-<p>Arrow keys or WASD to steer. Eat the red food, grow, get faster.</p>
+<p>Built by an AI agent from one prompt. Steer with arrow keys or WASD. Eat, grow, get faster.</p>
+<div id="hud">SCORE <span id="score">0</span> &nbsp; SPEED <b id="speed">x1.0</b></div>
+<canvas id="board" width="840" height="450"></canvas>
+<p id="msg">Press an arrow key to start.</p>
 <script>
-  // Tiny snake game, built from one prompt:
-  // "a snake that eats, grows, and gets faster. Make it fun."
-  const COLS = 28, ROWS = 15, CELL = 28;
-  const cv = document.getElementById('game');
-  const ctx = cv.getContext('2d');
-  const hud = document.getElementById('hud');
-  let snake = [{x: 6, y: 7}, {x: 5, y: 7}, {x: 4, y: 7}];
-  let dir = {x: 1, y: 0}, pending = dir;
-  let food = spawnFood(), score = 0, over = false;
-  function spawnFood() {
-    let f;
-    do { f = {x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS)}; }
-    while (snake.some(s => s.x === f.x && s.y === f.y));
-    return f;
-  }
-  addEventListener('keydown', e => {
-    const k = {ArrowUp: [0,-1], KeyW: [0,-1], ArrowDown: [0,1], KeyS: [0,1],
-               ArrowLeft: [-1,0], KeyA: [-1,0], ArrowRight: [1,0], KeyD: [1,0]}[e.code];
-    if (k && !(k[0] === -dir.x && k[1] === -dir.y)) pending = {x: k[0], y: k[1]};
-  });
-  function step() {
-    if (over) return;
-    dir = pending;
-    const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
-    if (head.x < 0 || head.y < 0 || head.x >= COLS || head.y >= ROWS ||
-        snake.some(s => s.x === head.x && s.y === head.y)) {
-      over = true; hud.textContent = 'GAME OVER — SCORE ' + score + ' (refresh to play again)';
-      return;
+  const COLS = 28, ROWS = 15, CELL = 30;
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const speedEl = document.getElementById('speed');
+  const msgEl = document.getElementById('msg');
+
+  let snake = [{ x: 6, y: 7 }, { x: 5, y: 7 }, { x: 4, y: 7 }];
+  let dir = { x: 1, y: 0 };
+  let queued = null;
+  let food = null;
+  let score = 0;
+  let timer = null;
+  let started = false;
+
+  function placeFood() {
+    while (true) {
+      const f = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
+      if (!snake.some(s => s.x === f.x && s.y === f.y)) { food = f; return; }
     }
-    snake.unshift(head);
-    if (head.x === food.x && head.y === food.y) { score++; food = spawnFood(); }
-    else snake.pop();
-    const speed = 1 + score * 0.12;
-    hud.textContent = 'SCORE ' + score + '   SPEED x' + speed.toFixed(1);
-    draw();
-    setTimeout(step, 220 / speed);
   }
+
+  function stepMs() {
+    // One food eaten raises the speed by 12 percent, same rule as the video.
+    return Math.max(60, 220 - score * 22);
+  }
+
   function draw() {
-    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#0d1b11';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let x = 0; x < COLS; x++) {
+      for (let y = 0; y < ROWS; y++) {
+        if ((x + y) % 2 === 0) { ctx.fillStyle = '#11221a'; ctx.fillRect(x * CELL, y * CELL, CELL, CELL); }
+      }
+    }
     ctx.fillStyle = '#ef4444';
     ctx.beginPath();
-    ctx.arc(food.x * CELL + 14, food.y * CELL + 14, 10, 0, 7);
+    ctx.arc(food.x * CELL + CELL / 2, food.y * CELL + CELL / 2, CELL / 2 - 5, 0, Math.PI * 2);
     ctx.fill();
     snake.forEach((s, i) => {
       ctx.fillStyle = i === 0 ? '#22c55e' : '#15803d';
+      const pad = i === 0 ? 2 : 4;
       ctx.beginPath();
-      ctx.roundRect(s.x * CELL + 2, s.y * CELL + 2, CELL - 4, CELL - 4, 8);
+      ctx.roundRect(s.x * CELL + pad, s.y * CELL + pad, CELL - pad * 2, CELL - pad * 2, 8);
       ctx.fill();
     });
+    if (snake.length) {
+      const h = snake[0];
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(h.x * CELL + CELL / 2 - 7, h.y * CELL + CELL / 2 - 3, 3, 0, Math.PI * 2);
+      ctx.arc(h.x * CELL + CELL / 2 + 7, h.y * CELL + CELL / 2 - 3, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
+
+  function tick() {
+    if (queued) { dir = queued; queued = null; }
+    const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+    const hitWall = head.x < 0 || head.y < 0 || head.x >= COLS || head.y >= ROWS;
+    const hitSelf = snake.some(s => s.x === head.x && s.y === head.y);
+    if (hitWall || hitSelf) {
+      clearInterval(timer);
+      timer = null;
+      msgEl.textContent = 'Game over. Score ' + score + '. Press R to play again.';
+      return;
+    }
+    snake.unshift(head);
+    if (head.x === food.x && head.y === food.y) {
+      score++;
+      scoreEl.textContent = score;
+      speedEl.textContent = 'x' + (1 + score * 0.12).toFixed(1);
+      placeFood();
+      clearInterval(timer);
+      timer = setInterval(tick, stepMs());
+    } else {
+      snake.pop();
+    }
+    draw();
+  }
+
+  function start() {
+    if (started) return;
+    started = true;
+    msgEl.textContent = '';
+    timer = setInterval(tick, stepMs());
+  }
+
+  const KEYS = {
+    ArrowUp: { x: 0, y: -1 }, KeyW: { x: 0, y: -1 },
+    ArrowDown: { x: 0, y: 1 }, KeyS: { x: 0, y: 1 },
+    ArrowLeft: { x: -1, y: 0 }, KeyA: { x: -1, y: 0 },
+    ArrowRight: { x: 1, y: 0 }, KeyD: { x: 1, y: 0 },
+  };
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyR' && !timer) {
+      snake = [{ x: 6, y: 7 }, { x: 5, y: 7 }, { x: 4, y: 7 }];
+      dir = { x: 1, y: 0 }; score = 0;
+      scoreEl.textContent = '0'; speedEl.textContent = 'x1.0';
+      started = false; placeFood(); draw(); start();
+      return;
+    }
+    if (e.code === 'Space') { e.preventDefault(); start(); return; }
+    const next = KEYS[e.code];
+    if (!next) return;
+    e.preventDefault();
+    if (next.x === -dir.x && next.y === -dir.y) return;
+    queued = next;
+    start();
+  });
+
+  placeFood();
   draw();
-  setTimeout(step, 220);
 </script>
 </body>
 </html>
